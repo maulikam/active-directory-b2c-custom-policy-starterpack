@@ -30,14 +30,50 @@
           <Protocol Name="OpenIdConnect" PartnerClaimType="sub" />
         </DefaultPartnerClaimTypes>
       </ClaimType>
-      <ClaimType Id="action">
-        <DataType>string</DataType>
-      </ClaimType>
       <ClaimType Id="userMessage">
         <DataType>string</DataType>
       </ClaimType>
+      <ClaimType Id="action">
+        <DisplayName>Action</DisplayName>
+        <DataType>string</DataType>
+      </ClaimType>
+      <ClaimType Id="isInvited">
+        <DisplayName>Is Invited</DisplayName>
+        <DataType>boolean</DataType>
+      </ClaimType>
+      <ClaimType Id="continue">
+        <DisplayName>Continue Action</DisplayName>
+        <DataType>string</DataType>
+        <UserHelpText>The action to continue the user journey</UserHelpText>
+      </ClaimType>
       <!-- Other claim types... -->
     </ClaimsSchema>
+
+    <ClaimsTransformations>
+      <ClaimsTransformation Id="ValidateIsInvited" TransformationMethod="AssertBooleanClaimIsEqualToValue">
+        <InputClaims>
+          <InputClaim ClaimTypeReferenceId="isInvited" TransformationClaimType="inputClaim" />
+        </InputClaims>
+        <InputParameters>
+          <InputParameter Id="valueToCompareTo" DataType="boolean" Value="true" />
+        </InputParameters>
+      </ClaimsTransformation>
+
+<!--      <ClaimsTransformation Id="IsInvited" TransformationMethod="CompareClaimToValue">-->
+<!--        <InputClaims>-->
+<!--          <InputClaim ClaimTypeReferenceId="action" TransformationClaimType="inputClaim" />-->
+<!--        </InputClaims>-->
+<!--        <InputParameters>-->
+<!--          <InputParameter Id="compareTo" DataType="string" Value="continue" />-->
+<!--          <InputParameter Id="operator" DataType="string" Value="equal" />-->
+<!--          <InputParameter Id="ignoreCase" DataType="string" Value="true" />-->
+<!--        </InputParameters>-->
+<!--        <OutputClaims>-->
+<!--          <OutputClaim ClaimTypeReferenceId="isInvited" TransformationClaimType="outputClaim" />-->
+<!--        </OutputClaims>-->
+<!--      </ClaimsTransformation>-->
+    </ClaimsTransformations>
+
   </BuildingBlocks>
 
   <ClaimsProviders>
@@ -258,28 +294,48 @@
             <Item Key="ServiceUrl">https://inviteflowvalidation.azurewebsites.net/api/validate?code=XWz5kNu02cNJDZcyunZNcPFrr9BSb1quoTU0obtujXeRAzFuDylE5w%3D%3D</Item>
             <Item Key="AuthenticationType">None</Item>
             <Item Key="SendClaimsIn">Body</Item>
-            <Item Key="AllowInsecureAuthInProduction">true</Item> <!-- Set to 'true' only for testing -->
+            <Item Key="AllowInsecureAuthInProduction">true</Item>
           </Metadata>
           <InputClaims>
             <InputClaim ClaimTypeReferenceId="email" />
           </InputClaims>
           <OutputClaims>
-            <OutputClaim ClaimTypeReferenceId="action" />
-            <OutputClaim ClaimTypeReferenceId="userMessage" />
+            <OutputClaim ClaimTypeReferenceId="isInvited" /> <!-- Directly output the boolean value -->
           </OutputClaims>
           <UseTechnicalProfileForSessionManagement ReferenceId="SM-Noop" />
         </TechnicalProfile>
+      </TechnicalProfiles>
+    </ClaimsProvider>
 
+    <ClaimsProvider>
+      <DisplayName>Invitation Validation</DisplayName>
+      <TechnicalProfiles>
+        <TechnicalProfile Id="Validate-Invitation">
+          <DisplayName>Validate Invitation Response</DisplayName>
+          <Protocol Name="Proprietary" Handler="Web.TPEngine.Providers.ClaimsTransformationProtocolProvider, Web.TPEngine, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+          <InputClaims>
+            <InputClaim ClaimTypeReferenceId="isInvited" /> <!-- Use the boolean claim directly -->
+          </InputClaims>
+          <OutputClaims>
+            <OutputClaim ClaimTypeReferenceId="isInvited" /> <!-- Pass through the boolean claim -->
+          </OutputClaims>
+        </TechnicalProfile>
+      </TechnicalProfiles>
+    </ClaimsProvider>
+
+    <ClaimsProvider>
+      <DisplayName>Block Page</DisplayName>
+      <TechnicalProfiles>
         <TechnicalProfile Id="SelfAsserted-BlockPage">
-          <DisplayName>Block Page</DisplayName>
+          <DisplayName>Self-Asserted Block Page</DisplayName>
           <Protocol Name="Proprietary" Handler="Web.TPEngine.Providers.SelfAssertedAttributeProvider, Web.TPEngine, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
           <Metadata>
             <Item Key="ContentDefinitionReferenceId">api.selfasserted</Item>
-            <Item Key="UserMessageIfClaimsTransformationBooleanValueIsNotEqual">You are not invited to sign up.</Item>
+            <Item Key="UserMessageIfClaimsTransformationBooleanValueIsNotEqual">You are not invited to sign up at this time.</Item>
           </Metadata>
-          <InputClaims>
-            <InputClaim ClaimTypeReferenceId="userMessage" />
-          </InputClaims>
+          <InputClaimsTransformations>
+            <InputClaimsTransformation ReferenceId="ValidateIsInvited" />
+          </InputClaimsTransformations>
           <OutputClaims>
             <OutputClaim ClaimTypeReferenceId="userMessage" />
           </OutputClaims>
@@ -288,10 +344,15 @@
       </TechnicalProfiles>
     </ClaimsProvider>
 
+
+
   </ClaimsProviders>
 
+
+
+
   <UserJourneys>
-    <UserJourney Id="SignUpOrSignIn">
+    <UserJourney Id="SignUpOrSignIn" DefaultCpimIssuerTechnicalProfileReferenceId="JwtIssuer">
       <OrchestrationSteps>
         <!-- Step 1: Choose identity provider -->
         <OrchestrationStep Order="1" Type="CombinedSignInAndSignUp" ContentDefinitionReferenceId="api.signuporsignin">
@@ -316,12 +377,33 @@
           </ClaimsExchanges>
         </OrchestrationStep>
 
-        <!-- Step 4: Handle invitation check result -->
+        <!-- Step 4: Validate the invitation response -->
         <OrchestrationStep Order="4" Type="ClaimsExchange">
+          <ClaimsExchanges>
+            <ClaimsExchange Id="ValidateIsInvited" TechnicalProfileReferenceId="Validate-Invitation" />
+          </ClaimsExchanges>
+        </OrchestrationStep>
+
+        <!-- Step 5: Block non-invited users -->
+        <OrchestrationStep Order="5" Type="ClaimsExchange">
           <Preconditions>
             <Precondition Type="ClaimEquals" ExecuteActionsIf="true">
-              <Value>action</Value>
-              <Value>ShowBlockPage</Value>
+              <Value>isInvited</Value>
+              <Value>true</Value>
+              <Action>SkipThisOrchestrationStep</Action>
+            </Precondition>
+          </Preconditions>
+          <ClaimsExchanges>
+            <ClaimsExchange Id="BlockNonInvitedUser" TechnicalProfileReferenceId="SelfAsserted-BlockPage" />
+          </ClaimsExchanges>
+        </OrchestrationStep>
+
+        <!-- Step 6: If invited, check if user exists -->
+        <OrchestrationStep Order="6" Type="ClaimsExchange">
+          <Preconditions>
+            <Precondition Type="ClaimEquals" ExecuteActionsIf="false">
+              <Value>isInvited</Value>
+              <Value>true</Value>
               <Action>SkipThisOrchestrationStep</Action>
             </Precondition>
           </Preconditions>
@@ -330,12 +412,12 @@
           </ClaimsExchanges>
         </OrchestrationStep>
 
-        <!-- Step 5: Create user if they don't exist -->
-        <OrchestrationStep Order="5" Type="ClaimsExchange">
+        <!-- Step 7: Create user if they don't exist -->
+        <OrchestrationStep Order="7" Type="ClaimsExchange">
           <Preconditions>
-            <Precondition Type="ClaimEquals" ExecuteActionsIf="true">
-              <Value>action</Value>
-              <Value>ShowBlockPage</Value>
+            <Precondition Type="ClaimEquals" ExecuteActionsIf="false">
+              <Value>isInvited</Value>
+              <Value>true</Value>
               <Action>SkipThisOrchestrationStep</Action>
             </Precondition>
             <Precondition Type="ClaimsExist" ExecuteActionsIf="true">
@@ -348,12 +430,12 @@
           </ClaimsExchanges>
         </OrchestrationStep>
 
-        <!-- Step 6: Read user profile -->
-        <OrchestrationStep Order="6" Type="ClaimsExchange">
+        <!-- Step 8: Read user profile -->
+        <OrchestrationStep Order="8" Type="ClaimsExchange">
           <Preconditions>
-            <Precondition Type="ClaimEquals" ExecuteActionsIf="true">
-              <Value>action</Value>
-              <Value>ShowBlockPage</Value>
+            <Precondition Type="ClaimEquals" ExecuteActionsIf="false">
+              <Value>isInvited</Value>
+              <Value>true</Value>
               <Action>SkipThisOrchestrationStep</Action>
             </Precondition>
           </Preconditions>
@@ -362,34 +444,21 @@
           </ClaimsExchanges>
         </OrchestrationStep>
 
-        <!-- New Step 7: Show block page if necessary -->
-        <OrchestrationStep Order="7" Type="ClaimsExchange">
+        <!-- Step 9: Issue token -->
+        <OrchestrationStep Order="9" Type="SendClaims" CpimIssuerTechnicalProfileReferenceId="JwtIssuer">
           <Preconditions>
             <Precondition Type="ClaimEquals" ExecuteActionsIf="false">
-              <Value>action</Value>
-              <Value>ShowBlockPage</Value>
-              <Action>SkipThisOrchestrationStep</Action>
-            </Precondition>
-          </Preconditions>
-          <ClaimsExchanges>
-            <ClaimsExchange Id="ShowBlockPage" TechnicalProfileReferenceId="SelfAsserted-BlockPage" />
-          </ClaimsExchanges>
-        </OrchestrationStep>
-
-        <!-- Step 8: Issue token (only if not blocked) -->
-        <OrchestrationStep Order="8" Type="SendClaims" CpimIssuerTechnicalProfileReferenceId="JwtIssuer">
-          <Preconditions>
-            <Precondition Type="ClaimEquals" ExecuteActionsIf="true">
-              <Value>action</Value>
-              <Value>ShowBlockPage</Value>
+              <Value>isInvited</Value>
+              <Value>true</Value>
               <Action>SkipThisOrchestrationStep</Action>
             </Precondition>
           </Preconditions>
         </OrchestrationStep>
       </OrchestrationSteps>
-      <ClientDefinition ReferenceId="DefaultWeb" />
     </UserJourney>
   </UserJourneys>
+
+
 
 
 

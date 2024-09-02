@@ -79,6 +79,12 @@
         <UserHelpText>Your mail nick name as stored in the Azure Active Directory.</UserHelpText>
       </ClaimType>
 
+      <ClaimType Id="isInvited">
+        <DisplayName>Is Invited</DisplayName>
+        <DataType>boolean</DataType>
+      </ClaimType>
+
+
       <ClaimType Id="identityProvider">
         <DisplayName>Identity Provider</DisplayName>
         <DataType>string</DataType>
